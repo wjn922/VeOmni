@@ -6,6 +6,15 @@ set -o pipefail
 export TOKENIZERS_PARALLELISM=false
 export TORCH_NCCL_AVOID_RECORD_STREAMS=1
 
+CONFIG_PATH=$1
+OUTPUT_DIR=$2
+PRETRAINED_MODEL=$3
+
+# Preparation
+mkdir -p ${OUTPUT_DIR}
+RUN_NAME=$(basename ${OUTPUT_DIR})
+
+
 NNODES=${NNODES:=1}
 if command -v nvidia-smi &> /dev/null && nvidia-smi --list-gpus &> /dev/null; then
   # GPU
@@ -39,10 +48,13 @@ torchrun \
   --nnodes=$NNODES \
   --nproc-per-node=$NPROC_PER_NODE \
   --node-rank=$NODE_RANK \
-  $additional_args $@ 2>&1 | tee log.txt
+  $additional_args \
+  tasks/omni/train_qwen_vl.py $CONFIG_PATH \
+  --train.output_dir ${OUTPUT_DIR} \
+  --train.wandb_name ${RUN_NAME} \
+  --model.model_path ${PRETRAINED_MODEL} \
+   2>&1 | tee ${OUTPUT_DIR}/log.txt
 
 
 # e.g.
-# bash train.sh tasks/omni/train_qwen_vl.py configs/qwen3vl/llava-next_packing.yaml \
-#   --train.output_dir output/qwen3vl/qwen3vl-4b_llava-next_packing16384_1x8x1_lr1e-5 \
-#   --train.wandb_name qwen3vl-4b_llava-next_packing16384_1x8x1_lr1e-5
+# bash scripts/train.sh configs/qwen3vl/llava-next_packing.yaml output/qwen3vl/qwen3vl-4b_llava-next_packing16384_1x8x1_lr1e-5 pretrained_models/Qwen3-VL-4B-LLaVAOV-Stage1.5-New

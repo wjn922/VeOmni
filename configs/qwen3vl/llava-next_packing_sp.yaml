@@ -1,0 +1,47 @@
+model:
+  model_path: pretrained_models/Qwen3-VL-4B-LLaVAOV-Stage1.5-New
+  attn_implementation: flash_attention_2
+
+data:
+  train_path: data/llava-next-780k_veomni.jsonl
+  data_type: conversation
+  dataloader_type: native
+  datasets_type: mapping
+  source_name: sharegpt4v_sft  # for preprocess
+  chat_template: qwen3vl
+  max_seq_len: 16384
+  train_size: 458000000  # number of training tokens to compute training steps for dyn_bsz
+  num_workers: 8
+  mm_config:
+    fps: 2.0
+    use_audio_in_video: false
+
+train:
+  output_dir: output/qwen3vl/qwen3vl-4b_llava-next
+  data_parallel_mode: fsdp2
+  enable_reentrant: false
+  use_wandb: true
+  wandb_project: veomni
+  wandb_name: llava-next
+  rmpad: false
+  rmpad_with_pos_ids: true
+  pad_packed_input: false  # enable padding for packed sequences when rmpad_with_pos_ids is enabled
+  pad_packed_to_length: 16384
+  ulysses_parallel_size: 2
+  freeze_vit: false
+  lr: 1.0e-5
+  lr_decay_style: cosine
+  lr_warmup_ratio: 0.03
+  dyn_bsz: true
+  num_train_epochs: 1
+  micro_batch_size: 1  # batch size per GPU; if dyn_bsz, batch size will be dynamically adjusted to fit the token budget (micro_batch_size * max_seq_len)
+  global_batch_size: 8  # if None, use micro_batch_size * data_parallel_size; else, use global_batch_size to calculate gradient accumulation steps
+  max_steps: 10000  # for mapping dataset, use epochs priority and use max_steps for debug; for iterable dataset, use max_steps
+  init_device: meta
+  enable_profiling: true
+  profile_start_step: 20
+  profile_end_step: 21
+  profile_record_shapes: true
+  ckpt_manager: dcp
+  save_hf_weights: true
+  save_steps: 1000

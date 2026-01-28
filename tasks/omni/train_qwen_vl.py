@@ -47,7 +47,8 @@ if TYPE_CHECKING:
 
 logger = helper.create_logger(__name__)
 
-MAX_PIXELS = 768 * 28 * 28
+# set max_pixels here
+MAX_PIXELS = 1024 * 1024
 ROLE_MAPPING = {
     "human": "user",
     "gpt": "assistant",
@@ -94,6 +95,7 @@ class Arguments:
 
 
 def main():
+    # 1. read args, init dist
     args = parse_args(Arguments)
     logger.info(f"Process rank: {args.train.global_rank}, world size: {args.train.world_size}")
     logger.info_rank0(json.dumps(asdict(args), indent=2))
@@ -108,6 +110,7 @@ def main():
 
     Checkpointer = build_checkpointer(dist_backend=args.train.data_parallel_mode, ckpt_manager=args.train.ckpt_manager)
 
+    # 2. init parallel state
     init_parallel_state(
         dp_size=args.train.data_parallel_size,
         dp_replicate_size=args.train.data_parallel_replicate_size,
@@ -121,6 +124,7 @@ def main():
         async_enabled=args.train.async_enabled,
     )
 
+    # 3. prepare model
     logger.info_rank0("Prepare model")
     model = build_foundation_model(
         config_path=args.model.config_path,
@@ -132,6 +136,7 @@ def main():
     model_config = model.config
     helper.print_device_mem_info("VRAM usage after building model")
 
+    # 4. prepare processor, collator, dataset, dataloader
     logger.info_rank0("Prepare data")
     processor = build_processor(args.model.tokenizer_path)
     processor.image_processor.max_pixels = MAX_PIXELS
@@ -216,6 +221,7 @@ def main():
         prefetch_factor=args.data.prefetch_factor,
     )
 
+    # 5. wrap model, prepare optimizer, lr scheduler
     fsdp_kwargs = {}
     if args.train.freeze_vit:
         model.visual.requires_grad_(False)
@@ -291,6 +297,7 @@ def main():
         empty_cache_steps=args.train.empty_cache_steps,
     )
 
+    # 6. load checkpoint
     if args.train.load_checkpoint_path:
         state = {"model": model, "optimizer": optimizer, "extra_state": {}}  # cannot be None
         Checkpointer.load(args.train.load_checkpoint_path, state)
@@ -306,11 +313,14 @@ def main():
         dist.barrier()
         logger.info_rank0(f"Load distributed checkpoint from {args.train.load_checkpoint_path} successfully!")
 
+    # 7. gradient checkpointing
     helper.empty_cache()
     model_fwd_context, model_bwd_context = build_activation_offloading_context(
         args.train.enable_activation_offload, args.train.enable_gradient_checkpointing, args.train.activation_gpu_limit
     )
     model.train()
+
+    # 8. start training
     logger.info_rank0("Start training")
     for epoch in range(start_epoch, args.train.num_train_epochs):
         if hasattr(train_dataloader, "set_epoch"):
